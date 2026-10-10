@@ -81,6 +81,9 @@
 #ifndef FREEINK_DEVICE_PICCO
 #define FREEINK_DEVICE_PICCO 0
 #endif
+#ifndef FREEINK_DEVICE_GLYPH
+#define FREEINK_DEVICE_GLYPH 0
+#endif
 
 #ifndef FREEINK_DEVICE_METALIO_EINK4
 #define FREEINK_DEVICE_METALIO_EINK4 0
@@ -94,9 +97,9 @@
       FREEINK_DEVICE_MURPHY || FREEINK_DEVICE_DELINK || FREEINK_DEVICE_LILYGO || FREEINK_DEVICE_M5PAPER ||               \
       FREEINK_DEVICE_STICKY || FREEINK_DEVICE_PAPERMONO || FREEINK_DEVICE_PAPERS3 || FREEINK_DEVICE_MURPHY_M4 ||         \
       FREEINK_DEVICE_EEGO_A4 || FREEINK_DEVICE_ONEPAGE || FREEINK_DEVICE_WS397 || FREEINK_DEVICE_METALIO_EINK4 || \
-      FREEINK_DEVICE_PICCO)
+      FREEINK_DEVICE_PICCO || FREEINK_DEVICE_GLYPH)
 #error \
-    "FreeInk: no device selected. Pass at least one -DFREEINK_DEVICE_<NAME> (X4, X3, X4PRO, X4CLASSIC, M5, MURPHY, DELINK, LILYGO, M5PAPER, STICKY, PAPERMONO, PAPERS3, MURPHY_M4, EEGO_A4, ONEPAGE, WS397, METALIO_EINK4, PICCO) in your build env — see platformio.sample.ini."
+    "FreeInk: no device selected. Pass at least one -DFREEINK_DEVICE_<NAME> (X4, X3, X4PRO, X4CLASSIC, M5, MURPHY, DELINK, LILYGO, M5PAPER, STICKY, PAPERMONO, PAPERS3, MURPHY_M4, EEGO_A4, ONEPAGE, WS397, METALIO_EINK4, PICCO, GLYPH) in your build env — see platformio.sample.ini."
 #endif
 // Each device belongs to one MCU family; a binary targets exactly one. X3/X4 are
 // ESP32-C3; M5 PaperColor/Murphy/de-link/LilyGo are ESP32-S3; M5Paper v1.1 is the
@@ -108,7 +111,7 @@
   (FREEINK_DEVICE_M5 || FREEINK_DEVICE_MURPHY || FREEINK_DEVICE_DELINK || FREEINK_DEVICE_LILYGO ||        \
    FREEINK_DEVICE_STICKY || FREEINK_DEVICE_X4PRO || FREEINK_DEVICE_X4CLASSIC || FREEINK_DEVICE_PAPERMONO ||  \
    FREEINK_DEVICE_PAPERS3 || FREEINK_DEVICE_MURPHY_M4 || FREEINK_DEVICE_EEGO_A4 || FREEINK_DEVICE_WS397 || FREEINK_DEVICE_METALIO_EINK4 || \
-   FREEINK_DEVICE_PICCO)
+   FREEINK_DEVICE_PICCO || FREEINK_DEVICE_GLYPH)
 #define FREEINK_MCU_ESP32 (FREEINK_DEVICE_M5PAPER)
 #if (FREEINK_MCU_C3 + FREEINK_MCU_C61 + FREEINK_MCU_S3 + FREEINK_MCU_ESP32) != 1
 #error \
@@ -202,6 +205,14 @@
 #define FREEINK_DRIVER_UC8279C 1
 #else
 #define FREEINK_DRIVER_UC8279C 0
+#endif
+// Glyph v1: GDEY042T81 4.2" 400x300 B/W panel on an SSD1683 (24-pin FPC, the
+// GxEPD2_420_GDEY042T81 class). Its own driver, not the SSD1677 one: smaller
+// RAM window and a different update-control / waveform set.
+#if FREEINK_DEVICE_GLYPH
+#define FREEINK_DRIVER_SSD1683 1
+#else
+#define FREEINK_DRIVER_SSD1683 0
 #endif
 
 // --- 4) Derive default capabilities (override with -DFREEINK_CAP_*=0/1) -------
@@ -302,7 +313,8 @@
 // Sticky has a PDM mic but no output codec. The Microphone lib compiles its
 // capture path only when this is set; otherwise it links stub bodies.
 #ifndef FREEINK_CAP_MIC
-#define FREEINK_CAP_MIC (FREEINK_DEVICE_STICKY || FREEINK_DEVICE_PAPERMONO || FREEINK_DEVICE_METALIO_EINK4)
+#define FREEINK_CAP_MIC \
+  (FREEINK_DEVICE_STICKY || FREEINK_DEVICE_PAPERMONO || FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_GLYPH)
 #endif
 // On-board I2C sensors. Each lib (Rtc / EnvironmentSensor / Imu) compiles its
 // I2C driver only when its flag is set; otherwise it links stub bodies.
@@ -318,7 +330,7 @@
 #ifndef FREEINK_CAP_IMU
 #define FREEINK_CAP_IMU \
   (FREEINK_DEVICE_X3 || FREEINK_DEVICE_STICKY || FREEINK_DEVICE_X4CLASSIC || FREEINK_DEVICE_WS397 || FREEINK_DEVICE_METALIO_EINK4 || \
-   FREEINK_DEVICE_PICCO)
+   FREEINK_DEVICE_PICCO || FREEINK_DEVICE_GLYPH)
 #endif
 // Consumer-triggered vibration output; independent of audio and input events.
 #ifndef FREEINK_CAP_HAPTIC
@@ -423,6 +435,7 @@ enum class Board : uint8_t {
   Picco,        // Onyx Picco / BOOX Tiles: ESP32-S3 (16MB flash, 8MB octal PSRAM), SSD1677/2677 800x480 portrait,
                 // capacitive touch, 2-ch I2C frontlight, 4-bit SDMMC, ADC battery. RE'd from retail
                 // firmware.
+  Glyph,        // Glyph v1: ESP32-S3-MINI-1-N4R2, GDEY042T81 400x300 SSD1683, 2 keys + BOOT, PDM mic, LIS2DW12, no SD
 };
 
 // How the board reports button presses.
@@ -456,7 +469,8 @@ enum class DisplayController : uint8_t {
   IT8951 = 5,
   UC8279 = 6,
   UC8179 = 7,
-  UC8279C = 8  // EEGO A4 768x552 sibling of the UC8279 family (Uc8279cA4Driver)
+  UC8279C = 8,  // EEGO A4 768x552 sibling of the UC8279 family (Uc8279cA4Driver)
+  SSD1683 = 9   // Glyph v1 GDEY042T81 400x300 (Ssd1683Driver); Solomon sibling of the SSD1677, smaller RAM
 };
 
 // Optional capacitive touch controller.
@@ -696,7 +710,7 @@ struct MicConfig {
 };
 
 enum class RtcType : uint8_t { None, Pcf8563, Ds3231, Rx8130, Pcf85063 };
-enum class ImuType : uint8_t { None, Lsm6ds3, Qmi8658, Sc7a20h };
+enum class ImuType : uint8_t { None, Lsm6ds3, Qmi8658, Sc7a20h, Lis2dw12 };
 
 // On-board I2C sensors sharing one bus (e.g. the Sticky's RTC + temp/humidity +
 // IMU on SDA1/SCL0, the same bus as its fuel gauge). Each addr is 0 when that
@@ -707,7 +721,7 @@ struct SensorsConfig {
   uint32_t i2cHz;
   uint8_t rtcAddr;           // PCF8563 = 0x51, DS3231 = 0x68; 0 = none
   uint8_t tempHumidityAddr;  // SHT40 = 0x44; 0 = none
-  uint8_t imuAddr;           // LSM6DS3TR-C = 0x6A, QMI8658 = 0x6B/0x6A; 0 = none
+  uint8_t imuAddr;           // LSM6DS3TR-C = 0x6A, QMI8658 = 0x6B/0x6A, LIS2DW12 = 0x18/0x19; 0 = none
   uint8_t i2cBus = 0;        // 0 = Wire, 1 = Wire1 on multi-bus SoCs
   RtcType rtcType = RtcType::None;
   ImuType imuType = ImuType::None;
@@ -1994,6 +2008,74 @@ constexpr BoardProfile ONEPAGE = {
 static_assert(ONEPAGE.displayWidth / 8 * ONEPAGE.displayHeight == 48000,
               "OnePage framebuffer must be 48,000 bytes (800/8 x 480)");
 
+// --- Glyph v1 — ESP32-S3-MINI-1-N4R2, SSD1683 (400x300) ------------------------
+// GDEY042T81 4.2" 400x300 B/W e-paper on a 24-pin FPC behind an SSD1683. A
+// buttons-only device: no touch digitizer, no SD slot, no frontlight, no audio
+// out. 4 MB flash + 2 MB in-package PSRAM (GPIO26 is the PSRAM line on -N4R2).
+// Pins are from the Glyph repo's HARDWARE.md: §1 GPIO map, §2 I2C bus, §3 mic,
+// §4 LIS2DW12, §5 e-paper FPC, §7 buttons, §8 power tree.
+//
+// Firmware-side by design (no profile field fits them; the consumer owns them
+// in its own pin header, which must agree with HARDWARE.md §1):
+//   * FSR force sensor — supply GPIO36, ADC sense GPIO6 (bodge-wired, §6).
+//   * Capacitive touch pad on GPIO14 (TOUCH14, a single pad, not an I2C digitizer).
+//   * DRV2605L haptic driver at I2C 0x5A on the sensor bus, EN on GPIO1. It is an
+//     I2C waveform engine, not the GPIO-PWM motor HapticConfig describes, so
+//     `haptic` stays default (unassigned).
+//   * LIS2DW12 INT1 GPIO15 / INT2 GPIO16 (wake-on-motion is INT1-only, armed by
+//     the consumer; the Imu lib has no interrupt API).
+//   * TP4056 STDBY on GPIO33 (LOW = charge complete); the profile carries CHRG.
+//   * NAU7802 at 0x2A is fitted but unused; it drives GPIO35, leave it an input.
+//
+// Pending hardware validation:
+//   * orientation — panel mount transform not yet measured against Ssd1683Driver;
+//     ships NO_FLIP (the GxEPD2 rotation-0 frame is landscape, USB to the left).
+//   * viewableInsets — default; measure on the bezel.
+//   * displaySpiHz — 4 MHz is the clock measured working under GxEPD2; the
+//     driver may raise it once validated.
+constexpr BoardProfile GLYPH_V1 = {
+    Board::Glyph,
+    "glyph_v1",
+    InputStyle::DigitalButtons,
+    DisplayController::SSD1683,
+    400,
+    300,
+    // SCK41 MOSI(SDI)42 CS40 DC39 RST38 BUSY37 (HARDWARE.md §1/§5). No EPD
+    // power-enable GPIO: the on-board booster is driven by the panel's own
+    // GDR/RESE pins off the always-on 3V3 LDO (§8).
+    {41, 42, 40, 39, 38, 37, PIN_UNASSIGNED},
+    4000000,  // displaySpiHz: measured working clock (see note above)
+    // No SD slot: all SD pins unassigned.
+    {PIN_UNASSIGNED, PIN_UNASSIGNED, PIN_UNASSIGNED, PIN_UNASSIGNED, PIN_UNASSIGNED, false, 0},
+    // back=GPIO13 (SW4 "B"), confirm=GPIO12 (SW2 "A"), power=GPIO0 (SW1 BOOT).
+    // All active-low to GND. GPIO12/13 have NO external pull-up — they rely on
+    // the INPUT_PULLUP InputManager applies to every DigitalButtons pin; BOOT has
+    // a 10 kΩ external pull-up (R12). SW3 is the hardware EN reset, not readable.
+    {13, 12, PIN_UNASSIGNED, PIN_UNASSIGNED, PIN_UNASSIGNED, PIN_UNASSIGNED, 0, false},
+    10,    // batteryAdc: BAT_LVL GPIO10 (ADC1_CH9), 1 MΩ / 1 MΩ divider (§1, §8)
+    47,    // batteryChargeStatus: TP4056 CHRG GPIO47, open drain, LOW = charging (§8)
+    2.0f,  // batteryDividerMultiplier: ÷2 divider
+    PIN_UNASSIGNED,  // usbDetect: no VBUS sense; firmware infers USB from CHRG/STDBY
+    NO_TOUCH,        // GPIO14 touch pad is firmware-side (see above)
+    NO_FRONTLIGHT,
+    NO_AUDIO,  // no output path; the PDM mic is the mic field
+    NO_LEDS,   // no LED on the board
+    NO_FLIP,   // mount orientation pending validation; see note above
+    NO_SDMMC,
+    NO_GAUGE,  // ADC battery path, no I2C fuel gauge
+    // Microphone: MSM261DHT006 PDM mic — CLK GPIO5, DATA GPIO4, no enable pin
+    // (R19 100 kΩ pull-down on CLK holds it asleep when tri-stated) (§3).
+    {MicInput::Pdm, 5, 4, PIN_UNASSIGNED, true},
+    // Sensor I2C bus SDA34/SCL48, 4.7 kΩ pull-ups (§2). LIS2DW12 accelerometer at
+    // 0x19 (SA0 tied high; the Imu lib probes 0x18 too). No RTC, no temp/humidity.
+    // The bus also carries the DRV2605L (0x5A) and NAU7802 (0x2A), see above.
+    {34, 48, 400000, 0, 0, 0x19, 0, RtcType::None, ImuType::Lis2dw12},
+    1.0f,  // uiScale: buttons, 400x300 at ~120 PPI — no touch-target bump
+    {}};   // power: no latch — the LDO is always on
+
+static_assert(GLYPH_V1.displayWidth / 8 * GLYPH_V1.displayHeight == 15000,
+              "Glyph v1 framebuffer must be 15,000 bytes (400/8 x 300)");
+
 // Largest framebuffer (bytes) over the devices compiled into this build, derived
 // from the profiles above. The display facade sizes its static framebuffer to
 // this so one binary holds whichever panel is runtime-selected; a single-device
@@ -2020,7 +2102,8 @@ constexpr uint32_t MAX_FRAMEBUFFER_BYTES = cmax(
                              FREEINK_DEVICE_ONEPAGE ? panelBytes(ONEPAGE) : 0u),
                         cmax(FREEINK_DEVICE_WS397 ? panelBytes(WS_EPAPER_397) : 0u,
                              cmax(FREEINK_DEVICE_METALIO_EINK4 ? panelBytes(METALIO_EINK4) : 0u,
-                                  FREEINK_DEVICE_PICCO ? panelBytes(PICCO) : 0u)))))));
+                                  cmax(FREEINK_DEVICE_PICCO ? panelBytes(PICCO) : 0u,
+                                       FREEINK_DEVICE_GLYPH ? panelBytes(GLYPH_V1) : 0u))))))));
 
 // Compile-time default device — the profile ACTIVE starts as. With a single
 // device in the build this is the only device; with several same-MCU devices it
@@ -2059,6 +2142,8 @@ constexpr BoardProfile DEFAULT_DEVICE = XTEINK_X4_PRO;
 constexpr BoardProfile DEFAULT_DEVICE = XTEINK_X4_CLASSIC;
 #elif FREEINK_DEVICE_X3 && !FREEINK_DEVICE_X4
 constexpr BoardProfile DEFAULT_DEVICE = XTEINK_X3;  // X3-only binary
+#elif FREEINK_DEVICE_GLYPH
+constexpr BoardProfile DEFAULT_DEVICE = GLYPH_V1;
 #else
 // X4-only or the dual X3+X4 C3 binary: boot as X4, runtime-swap to X3 on detect.
 constexpr BoardProfile DEFAULT_DEVICE = XTEINK_X4;
@@ -2170,6 +2255,11 @@ inline bool selectDevice(Board which) {
       ACTIVE = PICCO;
       break;
 #endif
+#if FREEINK_DEVICE_GLYPH
+    case Board::Glyph:
+      ACTIVE = GLYPH_V1;
+      break;
+#endif
     default:
       return false;
   }
@@ -2195,6 +2285,7 @@ inline bool isMetalioEInk4() { return ACTIVE.board == Board::MetalioEInk4; }
 inline bool isOnePage() { return ACTIVE.board == Board::OnePage; }
 inline bool isWsEpaper397() { return ACTIVE.board == Board::WsEpaper397; }
 inline bool isPicco() { return ACTIVE.board == Board::Picco; }
+inline bool isGlyph() { return ACTIVE.board == Board::Glyph; }
 inline bool hasTouch() { return ACTIVE.touch.controller != TouchController::None; }
 inline bool hasHomeKey() { return ACTIVE.touch.hasHomeKey; }
 inline bool hasPwmFrontlight() { return ACTIVE.frontlight.gpio != PIN_UNASSIGNED || ACTIVE.frontlight.viaPm1Pwm; }

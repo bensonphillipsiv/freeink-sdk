@@ -141,6 +141,7 @@ so the SD manager itself stays device-agnostic.
 | **Waveshare ESP32-S3-ePaper-3.97** | ESP32-S3 | SSD1677 | 3.97" 800×480 B/W | reuses the SSD1677 driver with the Sticky's vendor sequences, 3 side keys + BOOT (no touch), native 4-bit SDMMC, AXP2101 PMIC as EPD rail + battery gauge + power key, PCF85063 RTC, QMI8658 IMU; orientation pending hardware validation — see docs/waveshare-epaper-397-support.md |
 | **M5Stack PaperS3** | ESP32-S3 | ED047TC1 (raw parallel) | 960×540 16-gray | same LovyanGFX EPD driver class as the LilyGo T5 S3 (plain-GPIO EPD rails, no PMIC), GT911 touch (touch-only navigation — no GPIO buttons), BM8563 RTC, GPIO3 ADC battery, LEDC buzzer, SPI MicroSD; power-off is a GPIO44 pulse to the PMS150G latch (`BoardPaperS3::powerOff()`); rotation/touch-flip pending hardware validation |
 | **Onyx Picco / BOOX Tiles** (initial) | ESP32-S3 (16MB flash, 8MB octal PSRAM) | SSD1677 / SSD2677 (auto) | 3.97" 800×480 B/W (portrait) | reuses the SSD1677 driver, native 4-bit SDMMC, GPIO2 power/wake button, PCF8563/BM8563 RTC @0x51 + QMI8658 IMU @0x6A on the shared I2C bus (SDA7/SCL8); touch (I2C 0x24, model unknown), 2-channel warm/cool I2C frontlight (@0x38), slide switch (GPIO6), SGM41562 charger (@0x03) and battery ADC (GPIO1) are wired; touch coordinates are not yet decoded, and nav-button roles are provisional |
+| **Glyph v1** | ESP32-S3 (MINI-1-N4R2) | SSD1683 | 4.2" 400×300 B/W | GDEY042T81 panel, 2 keys + BOOT (no touch), PDM microphone (Microphone lib), LIS2DW12 accelerometer (Imu lib), ADC battery + TP4056 charge status, no SD; hardware validation pending — see docs/glyph-v1-support.md |
 
 X3 and X4 share the ESP32-C3 and a pinout, so **one firmware binary drives both**:
 it carries both board profiles (`XTEINK_X4` and `XTEINK_X3`) and picks one at
@@ -339,6 +340,7 @@ MCU (a C3-vs-S3 mix is a compile error):
 | `-DFREEINK_DEVICE_X4CLASSIC` | Xteink X4 Classic / X4C (S3, SSD1677/UC8179/UC8279 auto-detect, buttons-only — no touch/frontlight, + SDMMC) |
 | `-DFREEINK_DEVICE_PAPERMONO` | M5Stack Paper Mono (S3, SSD1677 + FT6336 touch + PMIC frontlight) |
 | `-DFREEINK_DEVICE_PAPERS3` | M5Stack PaperS3 (S3, ED047TC1 raw-parallel EPD via LovyanGFX + GT911 touch) |
+| `-DFREEINK_DEVICE_GLYPH` | Glyph v1 (S3, SSD1683 400×300, buttons-only, PDM mic + LIS2DW12, no SD) |
 | *(none)* | **compile error** — a build must select at least one device |
 
 Multiple **different-pinout** devices on one MCU are runtime-selected: `ACTIVE`

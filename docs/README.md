@@ -31,6 +31,7 @@ for the full device list.
 - [Metalio E-Ink 4](metalio-eink4-support.md)
 - [OnePage ESP32-C61](onepage-c61-support.md)
 - [Waveshare ESP32-S3-ePaper-3.97](waveshare-epaper-397-support.md)
+- [Glyph v1](glyph-v1-support.md)
 
 ## Driver provenance
 
