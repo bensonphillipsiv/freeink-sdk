@@ -707,6 +707,12 @@ struct MicConfig {
   int8_t data;    // PDM data (input from mic)
   int8_t enable;  // mic power/enable pin (PIN_UNASSIGNED if none)
   bool enableActiveHigh;
+  // PDM RX downsampling ratio: 8 (default, PDM clock = 64 x sample rate, e.g.
+  // 1.024 MHz at 16 kHz) or 16 (128 x, 2.048 MHz at 16 kHz). Some mics have no
+  // operating mode at 1.024 MHz (the MSM261DHT006 sits between its low-power
+  // and standard bands there) and need 16. Defaulted so existing profiles stay
+  // valid.
+  uint8_t pdmDownsample = 8;
 };
 
 enum class RtcType : uint8_t { None, Pcf8563, Ds3231, Rx8130, Pcf85063 };
@@ -2065,7 +2071,7 @@ constexpr BoardProfile GLYPH_V1 = {
     NO_GAUGE,  // ADC battery path, no I2C fuel gauge
     // Microphone: MSM261DHT006 PDM mic — CLK GPIO5, DATA GPIO4, no enable pin
     // (R19 100 kΩ pull-down on CLK holds it asleep when tri-stated) (§3).
-    {MicInput::Pdm, 5, 4, PIN_UNASSIGNED, true},
+    {MicInput::Pdm, 5, 4, PIN_UNASSIGNED, true, 16},  // 2.048 MHz PDM clock (HARDWARE.md §3)
     // Sensor I2C bus SDA34/SCL48, 4.7 kΩ pull-ups (§2). LIS2DW12 accelerometer at
     // 0x19 (SA0 tied high; the Imu lib probes 0x18 too). No RTC, no temp/humidity.
     // The bus also carries the DRV2605L (0x5A) and NAU7802 (0x2A), see above.

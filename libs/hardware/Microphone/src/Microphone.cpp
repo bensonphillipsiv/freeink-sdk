@@ -65,6 +65,10 @@ bool Microphone::begin(uint32_t sampleRate) {
               .invert_flags = {.clk_inv = false},
           },
   };
+  // Per-board PDM clock ratio (BoardConfig::MicConfig::pdmDownsample): the
+  // default config is DSR_8S (64 x fs); boards whose mic has no mode at that
+  // clock ask for DSR_16S (128 x fs).
+  if (mic.pdmDownsample == 16) pdmCfg.clk_cfg.dn_sample_mode = I2S_PDM_DSR_16S;
   if (i2s_channel_init_pdm_rx_mode(rx, &pdmCfg) != ESP_OK || i2s_channel_enable(rx) != ESP_OK) {
     i2s_del_channel(rx);
     setMicPower(mic, false);
