@@ -23,6 +23,9 @@
 #if FREEINK_DRIVER_SSD1677
 #include "driver/Ssd1677Driver.h"
 #endif
+#if FREEINK_DRIVER_SSD1683
+#include "driver/Ssd1683Driver.h"
+#endif
 #if FREEINK_DEVICE_PICCO
 #include "driver/Ssd2677Driver.h"
 #endif
@@ -179,6 +182,8 @@ void FreeInkDisplay::selectDriver() {
       _driver = &uc8279cA4Driver();
 #elif FREEINK_DRIVER_SSD1677
       _driver = &ssd1677Driver();
+#elif FREEINK_DRIVER_SSD1683
+      _driver = &ssd1683Driver();
 #elif FREEINK_DRIVER_PAPER_MONO
       _driver = &paperMonoDriver();
 #elif FREEINK_DRIVER_UC8253_MURPHY
