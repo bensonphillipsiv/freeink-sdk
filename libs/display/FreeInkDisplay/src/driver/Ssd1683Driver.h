@@ -39,6 +39,10 @@ class Ssd1683Driver : public PanelDriver {
 
   void begin(EpdBus& bus) override;
   void deepSleep(EpdBus& bus) override;
+  // The host asserts that the glass still shows the frame the controller RAM
+  // holds (deep sleep mode 1 retains RAM; RES# and SWRESET do not clear it), so
+  // the first paint may be a differential against it instead of a promoted FULL.
+  void skipInitialResync() override { _needsInitialFull = false; }
 
   void display(EpdBus& bus, const uint8_t* fb, const uint8_t* prev, RefreshMode mode, bool turnOff) override;
   // Deferred refresh: displayStart() writes RAM and fires MASTER_ACTIVATION;
@@ -87,7 +91,8 @@ class Ssd1683Driver : public PanelDriver {
   // waveform, never during it.
   bool _pendingFrameSync = false;
   // First paint after begin(): a differential cannot clear whatever is on the
-  // glass at boot, so FAST is promoted to FULL once.
+  // glass at boot, so FAST is promoted to FULL once. skipInitialResync() clears
+  // it when the host knows the glass still shows the frame in controller RAM.
   bool _needsInitialFull = false;
 };
 

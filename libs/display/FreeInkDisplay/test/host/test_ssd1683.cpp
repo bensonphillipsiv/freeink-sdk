@@ -78,6 +78,20 @@ int main() {
   expectTail(bus, {0x40, 0x00}, 0xF7, -1);
   assert(bus.waits == 1 && !d._isScreenOn);
 
+  // Deep-sleep wake: begin() re-arms the promotion; skipInitialResync() (the
+  // host knows the glass still shows the frame in controller RAM) lets the
+  // first paint stay a differential.
+  bus.clear();
+  d.deepSleep(bus);
+  d.begin(bus);
+  d.skipInitialResync();
+  bus.clear();
+  d.display(bus, fb.data(), nullptr, RefreshMode::Fast, false);
+  {
+    const int act = find(bus, 0x20);
+    assert(act > 0 && is(bus.writes[act - 1], 0x22, {0xFC}) && is(bus.writes[act - 2], 0x21, {0x00, 0x00}));
+  }
+
   // FULL: both planes get fb, bypass RED, F7.
   bus.clear();
   d.display(bus, fb.data(), prev.data(), RefreshMode::Full, false);
