@@ -1,7 +1,7 @@
 #pragma once
 
 // FreeInk inertial measurement unit (LSM6DS3TR-C or QMI8658, 6-axis accel +
-// gyro), or SC7A20H (acceleration only).
+// gyro), or SC7A20H / LIS2DW12 (acceleration only).
 //
 // Reads acceleration (g) and angular rate (deg/s) from the I2C IMU described by
 // BoardConfig::ACTIVE.sensors (imuAddr / sensor bus). Dependency-free Wire
@@ -25,10 +25,11 @@ class Imu {
   // Returns false when the active board has no IMU or the part doesn't identify.
   bool begin();
   bool present() const { return begun_; }
-  bool hasGyroscope() const;  // false before begin() or on SC7A20H
+  bool hasGyroscope() const;  // false before begin() or on SC7A20H / LIS2DW12
 
   // Reads one sample. SC7A20H returns false when asleep or no new sample is
-  // ready; gyro fields are zero. All backends return false on I2C error.
+  // ready; LIS2DW12 returns false when asleep. Gyro fields are zero on both.
+  // All backends return false on I2C error.
   bool read(Sample& out);
 
   // Puts the sensors into hardware standby / power-down. Config registers are
@@ -43,8 +44,8 @@ class Imu {
  private:
   bool begun_ = false;
   bool sleeping_ = false;
-  // QMI8658 uses 0x6A/0x6B; SC7A20H uses 0x18/0x19 depending on its SA0
-  // strap. Keep the address found by begin() instead of repeatedly using the
+  // QMI8658 uses 0x6A/0x6B; SC7A20H and LIS2DW12 use 0x18/0x19 depending on
+  // their SA0 strap. Keep the address found by begin() instead of repeatedly using the
   // board profile's preferred address.
   uint8_t addr_ = 0;
 };

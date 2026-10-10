@@ -70,6 +70,26 @@ constexpr uint8_t SC7_100HZ = 0x57;  // XYZ on, LPen off
 constexpr uint8_t SC7_DIG_CTRL = 0x57;
 constexpr float SC7_G_PER_RAW_LSB = 1.0f / 16384.0f;  // section 13.13: 0x4000 = 1 g at ±2 g
 
+// LIS2DW12 (DocID029682 Rev 4). Same 0x18/0x19 SA0 strap as the SC7A20H but a
+// different identity (WHO_AM_I 0x0F = 0x44, section 8.3) and register meaning.
+// Multi-byte reads auto-increment via CTRL2.IF_ADD_INC, not the sub-address MSB.
+constexpr uint8_t LIS2DW12_WHO_AM_I_VALUE = 0x44;
+constexpr uint8_t LIS2DW12_CTRL1 = 0x20;
+constexpr uint8_t LIS2DW12_CTRL2 = 0x21;
+constexpr uint8_t LIS2DW12_CTRL6 = 0x25;
+constexpr uint8_t LIS2DW12_OUT_X_L = 0x28;  // X..Z, 6 bytes, LE, rolls back to 0x28 after 0x2D
+// Section 8.4 tables 30-32: ODR[3:0]=0101 (100 Hz), MODE[1:0]=01 (high-performance,
+// 14-bit), LP_MODE[1:0]=00 (ignored in HP). ODR=0000 is power-down.
+constexpr uint8_t LIS2DW12_CTRL1_100HZ_HP = 0x54;
+constexpr uint8_t LIS2DW12_CTRL1_POWER_DOWN = 0x00;
+// Section 8.5: BDU (bit 3) | IF_ADD_INC (bit 2, also its reset value).
+constexpr uint8_t LIS2DW12_CTRL2_BDU_IF_INC = 0x0C;
+// Section 8.9: BW_FILT=00 (ODR/2), FS=00 (±2 g), FDS=0 (low-pass path), LOW_NOISE=0.
+constexpr uint8_t LIS2DW12_CTRL6_2G = 0x00;
+// Table 4: 0.244 mg/digit at ±2 g in high-performance mode, per 14-bit digit
+// (the 16-bit output word is left-justified, so shift right by 2 first).
+constexpr float LIS2DW12_G_PER_DIGIT = 0.244f / 1000.0f;
+
 bool g_wireReady[2] = {false, false};
 TwoWire& sensorWire() {
 #if SOC_I2C_NUM > 1
@@ -124,6 +144,18 @@ bool sc7a20hPresentAt(uint8_t addr) {
   uint8_t who = 0, version = 0;
   return readRegs(addr, REG_WHO_AM_I, &who, 1) && who == SC7_ID &&
          readRegs(addr, SC7_VERSION_REG, &version, 1) && version == SC7_VERSION;
+}
+
+bool lis2dw12PresentAt(uint8_t addr) {
+  uint8_t who = 0;
+  return readRegs(addr, REG_WHO_AM_I, &who, 1) && who == LIS2DW12_WHO_AM_I_VALUE;
+}
+
+bool configureLis2dw12(uint8_t addr) {
+  // BDU before sampling starts so an X_L/X_H pair always comes from one sample;
+  // full scale and filter next; ODR last, which starts conversion.
+  return writeReg(addr, LIS2DW12_CTRL2, LIS2DW12_CTRL2_BDU_IF_INC) && writeReg(addr, LIS2DW12_CTRL6, LIS2DW12_CTRL6_2G) &&
+         writeReg(addr, LIS2DW12_CTRL1, LIS2DW12_CTRL1_100HZ_HP);
 }
 
 bool configureSc7a20h(uint8_t addr) {
@@ -217,6 +249,21 @@ bool Imu::begin() {
       delay(10);  // one 100 Hz sample period, also exceeds the 1 ms startup time
       break;
     }
+    case BoardConfig::ImuType::Lis2dw12: {
+      // SA0 selects 0x18/0x19; probe the profile address first, then the other.
+      if (configuredAddr != 0x18 && configuredAddr != 0x19) return false;
+      const uint8_t alternate = configuredAddr == 0x19 ? 0x18 : 0x19;
+      if (lis2dw12PresentAt(configuredAddr)) addr_ = configuredAddr;
+      else if (lis2dw12PresentAt(alternate)) addr_ = alternate;
+      else return false;
+      if (!configureLis2dw12(addr_)) {
+        writeReg(addr_, LIS2DW12_CTRL1, LIS2DW12_CTRL1_POWER_DOWN);
+        addr_ = 0;
+        return false;
+      }
+      delay(20);  // two 100 Hz periods: table 14 discards the first sample in HP at ODR/2
+      break;
+    }
     case BoardConfig::ImuType::None:
       return false;
   }
@@ -243,6 +290,25 @@ bool Imu::read(Sample& out) {
     const int16_t ay = static_cast<int16_t>((raw[2] & 0xF0) | (uint16_t(raw[3]) << 8));
     const int16_t az = static_cast<int16_t>((raw[4] & 0xF0) | (uint16_t(raw[5]) << 8));
     out = {ax * SC7_G_PER_RAW_LSB, ay * SC7_G_PER_RAW_LSB, az * SC7_G_PER_RAW_LSB, 0, 0, 0};
+    return true;
+  }
+  if (s.imuType == BoardConfig::ImuType::Lis2dw12) {
+    if (sleeping_) return false;
+    uint8_t raw[6] = {};
+    if (!readRegs(addr, LIS2DW12_OUT_X_L, raw, sizeof(raw))) return false;
+    // 14-bit two's complement, left-justified in 16 bits (section 8.12).
+    const int16_t ax = static_cast<int16_t>(raw[0] | raw[1] << 8) >> 2;
+    const int16_t ay = static_cast<int16_t>(raw[2] | raw[3] << 8) >> 2;
+    const int16_t az = static_cast<int16_t>(raw[4] | raw[5] << 8) >> 2;
+    out = {ax * LIS2DW12_G_PER_DIGIT, ay * LIS2DW12_G_PER_DIGIT, az * LIS2DW12_G_PER_DIGIT, 0, 0, 0};
+    // Same mount correction as the gyro backends below (accel only here).
+    if (s.imuSwapXY) {
+      const float t = out.ax;
+      out.ax = out.ay;
+      out.ay = t;
+    }
+    if (s.imuFlipX) out.ax = -out.ax;
+    if (s.imuFlipY) out.ay = -out.ay;
     return true;
   }
   uint8_t g[6] = {};
@@ -308,6 +374,11 @@ bool Imu::sleep() {
       if (!writeReg(addr, SC7_CTRL1, SC7_POWER_DOWN)) return false;
       sleeping_ = true;
       return true;
+    case BoardConfig::ImuType::Lis2dw12:
+      // CTRL2/CTRL6 are retained in power-down; only the ODR is cleared.
+      if (!writeReg(addr, LIS2DW12_CTRL1, LIS2DW12_CTRL1_POWER_DOWN)) return false;
+      sleeping_ = true;
+      return true;
     case BoardConfig::ImuType::None:
       return false;
   }
@@ -327,6 +398,11 @@ bool Imu::wake() {
     case BoardConfig::ImuType::Sc7a20h:
       if (!writeReg(addr, SC7_CTRL1, SC7_100HZ)) return false;
       delay(10);
+      sleeping_ = false;
+      return true;
+    case BoardConfig::ImuType::Lis2dw12:
+      if (!writeReg(addr, LIS2DW12_CTRL1, LIS2DW12_CTRL1_100HZ_HP)) return false;
+      delay(20);
       sleeping_ = false;
       return true;
     case BoardConfig::ImuType::None:

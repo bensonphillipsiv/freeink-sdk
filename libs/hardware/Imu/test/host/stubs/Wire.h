@@ -13,6 +13,10 @@ struct TwoWire {
   size_t offset = 0;
   int failWriteReg = -1, failReadReg = -1;
   bool shortRead = false;
+  // 0x18/0x19 model a LIS2DW12 instead of an SC7A20H: multi-byte reads
+  // auto-increment when CTRL2 (0x21) IF_ADD_INC (bit 2) is set, and the
+  // sub-address MSB is part of the address rather than an increment flag.
+  bool lis2dw12 = false;
   TwoWire() {
     devices[0x20] = true;
     regs[0x20][6] = regs[0x20][7] = 255;
@@ -37,8 +41,9 @@ struct TwoWire {
   int requestFrom(uint8_t a, uint8_t n, uint8_t) {
     rx.clear(); offset = 0; lastRead = reg;
     if (!devices[a] || (a != 0x20 && (reg & 0x7F) == failReadReg)) return 0;
-    const bool sc7 = a == 0x18 || a == 0x19;
-    const bool increment = !sc7 || (reg & 0x80);
+    const bool sc7 = !lis2dw12 && (a == 0x18 || a == 0x19);
+    const bool lis = lis2dw12 && (a == 0x18 || a == 0x19);
+    const bool increment = lis ? (regs[a][0x21] & 0x04) != 0 : (!sc7 || (reg & 0x80));
     uint8_t start = sc7 ? reg & 0x7F : reg;
     if (shortRead && a != 0x20 && n > 1) --n;
     for (int i = 0; i < n; ++i) rx.push_back(regs[a][start + (increment ? i : 0)]);
