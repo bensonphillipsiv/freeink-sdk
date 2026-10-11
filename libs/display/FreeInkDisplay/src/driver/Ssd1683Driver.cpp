@@ -285,8 +285,18 @@ void Ssd1683Driver::deepSleep(EpdBus& bus) {
   _needsInitialFull = true;
 }
 
+// Per-board config injection, same idiom as the other drivers: define
+// `const Ssd1683Config& yourConfig();` in namespace freeink and build with
+// -DFREEINK_SSD1683_CONFIG=yourConfig.
+#ifdef FREEINK_SSD1683_CONFIG
+const Ssd1683Config& FREEINK_SSD1683_CONFIG();
+static const Ssd1683Config& ssd1683ActiveConfig() { return FREEINK_SSD1683_CONFIG(); }
+#else
+static const Ssd1683Config& ssd1683ActiveConfig() { return ssd1683DefaultConfig(); }
+#endif
+
 PanelDriver& ssd1683Driver() {
-  static Ssd1683Driver instance;
+  static Ssd1683Driver instance(ssd1683ActiveConfig());
   return instance;
 }
 

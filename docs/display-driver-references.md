@@ -17,6 +17,26 @@ for each FreeInk target.
 | M5Paper v1.1 | IT8951E + ED047TC1 | M5Paper hardware and IT8951 firmware/protocol | [GxEPD2 IT8951 drivers](https://github.com/ZinggJM/GxEPD2/tree/master/src/it8951) | Protocol reference only: GxEPD2 lists other IT8951 panel/HAT combinations. VCOM, geometry, rotation, and waveform availability come from the attached controller. |
 | LilyGo T5 S3 | Raw-parallel ED047TC1 via LovyanGFX | LilyGo hardware and LovyanGFX `Panel_EPD` | None directly applicable | There is no on-glass SPI controller to compare with GxEPD2's panel drivers. |
 | M5Stack PaperColor | ED2208 / optional M5GFX backend | M5Stack vendor libraries and measured interrupted-refresh behavior | None in GxEPD2 | Six-color full-refresh operation is outside GxEPD2's matching controller set. |
+| Glyph v1 | SSD1683, GDEY042T81, 400×300 | [GxEPD2 GDEY042T81 driver](https://github.com/ZinggJM/GxEPD2/blob/master/src/gdey/GxEPD2_420_GDEY042T81.cpp) (`GxEPD2_420_GDEY042T81`, ZinggJM), validated on glass by the Glyph hwtest | Good Display GDEY042T81 datasheet | Exact controller and glass. Sequences follow GxEPD2; OTP waveforms only, no custom LUT. See [SSD1683 / GDEY042T81](#ssd1683--gdey042t81). |
+
+## SSD1683 / GDEY042T81
+
+`Ssd1683Driver` values, from `ssd1683DefaultConfig()` unless noted. A board can
+supply its own `Ssd1683Config` with `-DFREEINK_SSD1683_CONFIG=yourConfig`.
+
+| Step | Sequence | Notes |
+|---|---|---|
+| Init | `0x12`, 10 ms, BUSY; `0x01 2B 01 00`; `0x3C 01`; `0x18 80`; `0x11 03` | 300 gate lines; `mirrorY` ORs TB into the scan byte. Internal temperature sensor. RAM X is byte addressed. |
+| FULL | `0x21 40 00`, `0x22 F7`, `0x20` | OTP full waveform with temperature load. RED bypassed, so not differential. Powers down after. |
+| HALF (warm) | `0x21 40 00`, `0x1A 6E`, `0x22 D7`, `0x20` | Forced temperature selects the shorter OTP waveform. `0x6E` is GxEPD2's 2024-panel value, noted there as ok for 2023 panels. Powers down after. |
+| FAST | `0x21 00 00`, `0x22 FC`, `0x20` | OTP differential against RED (the previous frame). Rails stay up; `0x22 83` powers off when asked. |
+| Deep sleep | `0x22 83` if powered, then `0x10 01` | Mode 1 retains RAM; only RES# wakes it. `skipInitialResync()` relies on this. |
+
+BUSY is active high. The first paint after `begin()` promotes FAST to FULL,
+because a differential cannot clear whatever is on the glass at boot;
+`skipInitialResync()` waives that when the host knows the glass still shows the
+frame held in controller RAM. No grayscale LUT is characterised for this glass,
+so `grayscaleCapabilities()` advertises nothing.
 
 ## Change policy
 

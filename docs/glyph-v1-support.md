@@ -7,26 +7,38 @@ A custom ESP32-S3-MINI-1-N4R2 board (4 MB quad flash, 2 MB quad PSRAM) behind a
 BOOT. It has a PDM microphone, a LIS2DW12 accelerometer, an ADC battery divider and
 a TP4056 charger. There is no SD slot, touch digitizer, frontlight or audio output.
 
-The pin truth is the Glyph repository's `HARDWARE.md` (§1 GPIO map, §2 I²C, §3 mic,
-§4 LIS2DW12, §5 e-paper, §7 buttons, §8 power). The profile must agree with it.
+The pin source of truth in this SDK is the `GLYPH_V1` profile in
+`libs/hardware/BoardConfig/include/BoardConfig.h` and the comment block above it.
+The tables below restate it.
 
 ## Pins
 
-| Function | Pins | HARDWARE.md |
-|---|---|---|
-| EPD SPI | SCK 41, MOSI 42, CS 40, DC 39, RST 38, BUSY 37 (BUSY HIGH = busy) | §1, §5 |
-| EPD power rail | none: the on-board booster is driven by the panel's GDR/RESE | §5, §8 |
-| EPD SPI clock | 4 MHz (measured working under GxEPD2) | §5 |
-| Buttons | A = GPIO12 (confirm), B = GPIO13 (back), BOOT = GPIO0 (power); all active-low | §1, §7 |
-| Battery | ADC GPIO10 (ADC1_CH9), 1 MΩ / 1 MΩ divider, ×2 | §1, §8 |
-| Charge status | CHRG GPIO47 (LOW = charging); STDBY GPIO33 (LOW = charge complete) | §1, §8 |
-| PDM mic | CLK 5, DATA 4, no enable pin | §3 |
-| I²C bus | SDA 34, SCL 48, 4.7 kΩ pull-ups | §2 |
-| Accelerometer | LIS2DW12 @ 0x19 (SA0 high); INT1 15, INT2 16 | §2, §4 |
-| Haptic driver | DRV2605L @ 0x5A, EN GPIO1 | §2, §7 |
-| Touch pad | GPIO14 (TOUCH14, single pad) | §1, §7 |
-| FSR | supply GPIO36, sense GPIO6 (ADC1_CH5); bodge wires | §6 |
-| Reserved | GPIO35 is driven by the fitted but unused NAU7802 (0x2A) | §1, §2 |
+From `GLYPH_V1`:
+
+| Function | Pins |
+|---|---|
+| EPD SPI | SCK 41, MOSI 42 (write-only, no MISO) |
+| EPD control | CS 40, DC 39, RST 38, BUSY 37 (BUSY HIGH = busy) |
+| EPD power rail | none: the on-board booster is driven by the panel's GDR/RESE |
+| EPD SPI clock | 4 MHz (`displaySpiHz`) |
+| Buttons | A = GPIO12 (confirm), B = GPIO13 (back), BOOT = GPIO0 (power); all active-low |
+| Battery | ADC GPIO10 (ADC1_CH9), 1 MΩ / 1 MΩ divider, multiplier 2.0 |
+| Charge status | CHRG GPIO47 (open drain, LOW = charging) |
+| PDM mic | CLK 5, DATA 4, no enable pin; `pdmDownsample` 16 (2.048 MHz PDM clock at 16 kHz) |
+| I²C bus | SDA 34, SCL 48, 400 kHz |
+| Accelerometer | LIS2DW12 @ 0x19 (`ImuType::Lis2dw12`) |
+
+From the comment above `GLYPH_V1` (no profile field; see
+[Consumer-side by design](#consumer-side-by-design)):
+
+| Function | Pins |
+|---|---|
+| Accelerometer interrupts | INT1 GPIO15, INT2 GPIO16 |
+| Charge complete | STDBY GPIO33 (LOW = charge complete) |
+| Haptic driver | DRV2605L @ 0x5A on the sensor bus, EN GPIO1 |
+| Touch pad | GPIO14 (TOUCH14, single pad) |
+| FSR | supply GPIO36, sense GPIO6 (ADC1_CH5); bodge wires |
+| Reserved | GPIO35 is driven by the fitted but unused NAU7802 (0x2A); leave it an input |
 
 GPIO12 and GPIO13 have **no external pull-up**. `InputManager` configures every
 `DigitalButtons` pin with `INPUT_PULLUP`, which supplies it. BOOT has a 10 kΩ
@@ -38,7 +50,8 @@ external pull-up.
 the sensor bus with `ImuType::Lis2dw12`. Capabilities: `FREEINK_CAP_MIC` and
 `FREEINK_CAP_IMU` turn on. Touch, frontlight, RTC, buzzer, LED, haptic, SDMMC and
 the I²C battery gauge stay off. The panel uses its own `FREEINK_DRIVER_SSD1683`
-driver (`DisplayController::SSD1683`).
+driver (`DisplayController::SSD1683`); register sequences and their provenance are
+in [display driver references](display-driver-references.md).
 
 The `Imu` lib's LIS2DW12 backend runs the part at 100 Hz in high-performance mode
 (14-bit), ±2 g, with block data update. `read()` returns g; the gyro fields are zero
@@ -59,11 +72,28 @@ These have no `BoardProfile` field and stay in the consumer's own pin header:
 * **STDBY** (GPIO33). The profile's `batteryChargeStatus` is CHRG. USB presence is
   inferred from CHRG and STDBY together, since there is no VBUS sense pin.
 
+## Validated on hardware
+
+**Confirmed on hardware** on a Glyph v1, 2026-10-09/10:
+
+* **Panel (`Ssd1683Driver`).** FULL (`0x22 F7`) 1.64 s; FAST differential
+  (`0x22 FC`) 462 ms; a windowed refresh (`displayWindow`) 400 ms.
+* **Deep sleep and wake.** Deep sleep (`0x10 01`) with ext1 motion wake: the panel
+  image is retained across sleep, and the consumer calls `skipInitialResync()` on
+  wake so the first paint is a differential instead of a promoted FULL.
+* **LIS2DW12.** `Imu::read()` reads ~1.0 g at rest.
+* **Orientation.** `NO_FLIP` with the UI's landscape base reads upright on the glass;
+  the consumer's four-way facing table was checked on the glass 2026-10-10.
+* **PDM mic.** Streams at 16 kHz with `pdmDownsample` 16. The consumer's rate check
+  passed: 3072 bytes in 105 ms against 3200 expected.
+
 ## Pending hardware validation
 
-* **Orientation.** `NO_FLIP` has not been checked against the SSD1683 driver.
+* **HALF refresh.** The duration of the warm `0x22 D7` sequence on this unit has
+  not been measured.
+* **Tap thresholds.** The consumer's LIS2DW12 tap thresholds are ST's AN5038
+  starting values and have not been tuned.
 * **Viewable insets.** Default values; measure on the bezel.
 * **SPI clock.** 4 MHz is the GxEPD2 bring-up value. The driver may raise it.
-* **LIS2DW12 backend.** Host-tested only (`libs/hardware/Imu/test/host`, glyph
-  mode). It has not run on the board. `imuSwapXY` and the flips stay false; the
-  consumer maps raw axes to panel edges with the table measured in HARDWARE.md §4.
+* **IMU axes.** `imuSwapXY` and the flips stay false; the consumer maps raw axes to
+  panel edges.
