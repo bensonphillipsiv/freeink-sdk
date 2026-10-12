@@ -30,13 +30,24 @@ supply its own `Ssd1683Config` with `-DFREEINK_SSD1683_CONFIG=yourConfig`.
 | FULL | `0x21 40 00`, `0x22 F7`, `0x20` | OTP full waveform with temperature load. RED bypassed, so not differential. Powers down after. |
 | HALF (warm) | `0x21 40 00`, `0x1A 6E`, `0x22 D7`, `0x20` | Forced temperature selects the shorter OTP waveform. `0x6E` is GxEPD2's 2024-panel value, noted there as ok for 2023 panels. Powers down after. |
 | FAST | `0x21 00 00`, `0x22 FC`, `0x20` | OTP differential against RED (the previous frame). Rails stay up; `0x22 83` powers off when asked. |
-| Deep sleep | `0x22 83` if powered, then `0x10 01` | Mode 1 retains RAM; only RES# wakes it. `skipInitialResync()` relies on this. |
+| Deep sleep | `0x22 83` if powered, then `0x10 01` | Mode 1 retains RAM; only RES# wakes it. `skipInitialResync()` and `beginFromDeepSleep()` rely on this. Sends nothing while the controller is already asleep. |
 
 BUSY is active high. The first paint after `begin()` promotes FAST to FULL,
 because a differential cannot clear whatever is on the glass at boot;
 `skipInitialResync()` waives that when the host knows the glass still shows the
 frame held in controller RAM. No grayscale LUT is characterised for this glass,
 so `grayscaleCapabilities()` advertises nothing.
+
+`beginFromDeepSleep()` is the wake path: it touches nothing, and RES# + init run
+just before the first command (a refresh, a window, a RED seed), so the first
+refresh after a wake costs about 40 ms more (the 30 ms RES# pulse, 10 ms after
+SWRESET, BUSY). It implies `skipInitialResync()`. `deepSleep()` before any
+refresh sends nothing, because the controller never woke. The reason is measured, not stylistic: on a Glyph v1, `0x10` (mode 1 or 2)
+sent after RES# + SWRESET + init with no display sequence (`0x22` with the
+display bit, `0x20`) since darkened the whole active area on every such cycle.
+A LUT load (`0x22 B1`) or a power on/off (`0x22 E0` / `0x22 83`) before it did
+not help; a refresh before it, or no `0x10` at all, did. GxEPD2-style drivers
+reset and init only when they draw, which avoids it by habit.
 
 ## Change policy
 

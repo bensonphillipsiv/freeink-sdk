@@ -38,10 +38,21 @@ class Ssd1683Driver : public PanelDriver {
   PanelGeometry geometry() const override { return {_w, _h, _wb, _bufferSize}; }
 
   void begin(EpdBus& bus) override;
+  // Lazy wake: touches nothing. The controller stays in the mode-1 deep sleep
+  // the last deepSleep() sent; RES# + SWRESET + init run in ensureAwake()
+  // before the first command, and that first paint is not promoted to FULL
+  // (deep sleep mode 1 retains RAM; RES# and SWRESET do not clear it). A
+  // deepSleep() before any paint sends nothing. Measured on Glyph v1: deep
+  // sleep entered from the reset + init state, with no display sequence since,
+  // darkens the whole active area on every such cycle.
+  void beginFromDeepSleep(EpdBus& bus) override;
+  // 0x22 83 0x20 if the rails are up, then 0x10 01. Nothing while the panel is
+  // still asleep from a lazy wake or an earlier deepSleep().
   void deepSleep(EpdBus& bus) override;
+  bool panelAsleep() const override { return _panelAsleep; }
   // The host asserts that the glass still shows the frame the controller RAM
-  // holds (deep sleep mode 1 retains RAM; RES# and SWRESET do not clear it), so
-  // the first paint may be a differential against it instead of a promoted FULL.
+  // holds, so the first paint may be a differential against it instead of a
+  // promoted FULL. Survives a lazy init still to come.
   void skipInitialResync() override { _needsInitialFull = false; }
 
   void display(EpdBus& bus, const uint8_t* fb, const uint8_t* prev, RefreshMode mode, bool turnOff) override;
@@ -62,7 +73,12 @@ class Ssd1683Driver : public PanelDriver {
   }
 
  private:
+  // SWRESET + registers. Leaves _needsInitialFull alone: begin() arms it, a
+  // lazy wake keeps what the host asked for.
   void initController(EpdBus& bus);
+  // RES# + initController() once if the panel is still asleep; every entry
+  // point that sends commands calls it first.
+  void ensureAwake(EpdBus& bus);
   void setRamArea(EpdBus& bus, uint16_t x, uint16_t y, uint16_t w, uint16_t h);
   void writeRam(EpdBus& bus, uint8_t ramCmd, const uint8_t* data, uint32_t size);
   // async: fire MASTER_ACTIVATION and return without waiting on BUSY.
@@ -94,6 +110,9 @@ class Ssd1683Driver : public PanelDriver {
   // glass at boot, so FAST is promoted to FULL once. skipInitialResync() clears
   // it when the host knows the glass still shows the frame in controller RAM.
   bool _needsInitialFull = false;
+  // The controller is in deep sleep (after deepSleep(), or untouched since
+  // beginFromDeepSleep()); only RES# + init bring it back.
+  bool _panelAsleep = false;
 };
 
 // Singleton accessor (Meyers, zero-heap).

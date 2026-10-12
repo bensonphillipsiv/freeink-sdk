@@ -74,6 +74,13 @@ class FreeInkDisplay {
   void setHoldPeriodicFullRefresh(bool hold);
 
   void begin();
+  // begin() for a wake from deepSleep(): allocates and clears the framebuffer
+  // and brings up the bus like begin(), but tells the driver the panel is still
+  // asleep with its RAM and image retained. Implies skipInitialResync(): the
+  // first refresh may be a differential against the retained frame. Drivers
+  // that support it leave the controller asleep until the first refresh
+  // (SSD1683); the rest wake it at once.
+  void beginFromDeepSleep();
 
   // Legacy compile-time dimensions kept for compatibility.
   static constexpr uint16_t DISPLAY_WIDTH = 800;
@@ -292,6 +299,10 @@ class FreeInkDisplay {
 
   // Power management
   void deepSleep();
+  // True while the driver knows the panel is in deep sleep: deepSleep() ran, or
+  // nothing has needed it since beginFromDeepSleep(). False on drivers that do
+  // not track it.
+  bool panelAsleep() const;
 
   // Optional hooks fired around long BUSY waits (~0.3-2 s per refresh), so host
   // firmware can apply its own power policy (e.g. reduce the CPU clock) for the
@@ -393,6 +404,7 @@ class FreeInkDisplay {
 
  private:
   void selectDriver();
+  void beginImpl(bool fromDeepSleep);
   // Shared body of drawImage()/drawImageTransparent(). transparent=true ANDs
   // (black-only); false overwrites. Handles non-byte-aligned x per-pixel.
   void blitImage(const uint8_t* imageData, uint16_t x, uint16_t y, uint16_t w, uint16_t h, bool fromProgmem,

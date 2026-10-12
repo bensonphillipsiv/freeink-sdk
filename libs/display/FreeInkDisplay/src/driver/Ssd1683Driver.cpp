@@ -70,6 +70,23 @@ uint32_t Ssd1683Driver::spiHz() const {
 void Ssd1683Driver::begin(EpdBus& bus) {
   bus.reset();
   initController(bus);
+  // A differential cannot clear whatever the glass shows at boot.
+  _needsInitialFull = true;
+}
+
+void Ssd1683Driver::beginFromDeepSleep(EpdBus& bus) {
+  (void)bus;
+  _panelAsleep = true;
+  _isScreenOn = false;
+  _pendingPowerOff = false;
+  _pendingFrameSync = false;
+  _needsInitialFull = false;
+}
+
+void Ssd1683Driver::ensureAwake(EpdBus& bus) {
+  if (!_panelAsleep) return;
+  bus.reset();
+  initController(bus);
 }
 
 void Ssd1683Driver::initController(EpdBus& bus) {
@@ -95,7 +112,7 @@ void Ssd1683Driver::initController(EpdBus& bus) {
   _isScreenOn = false;
   _pendingPowerOff = false;
   _pendingFrameSync = false;
-  _needsInitialFull = true;
+  _panelAsleep = false;
 }
 
 void Ssd1683Driver::setRamArea(EpdBus& bus, uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
@@ -156,6 +173,8 @@ void Ssd1683Driver::refresh(EpdBus& bus, RefreshMode mode, bool turnOff, bool as
 }
 
 void Ssd1683Driver::powerOffController(EpdBus& bus) {
+  // Never true while asleep (begin paths and deepSleep() clear it), so this
+  // cannot talk to a sleeping controller.
   if (!_isScreenOn) return;
   bus.cmd(CMD_DISPLAY_UPDATE_CTRL2);
   bus.data(CTRL2_POWER_OFF);
@@ -190,6 +209,7 @@ void Ssd1683Driver::displayFinish(EpdBus& bus, const uint8_t* fb) {
 void Ssd1683Driver::displayImpl(EpdBus& bus, const uint8_t* fb, const uint8_t* prev, RefreshMode mode, bool turnOff,
                                 bool async) {
   if (!fb) return;
+  ensureAwake(bus);
   // A FULL or HALF the caller asked for already clears the glass; only FAST
   // needs promoting.
   if (_needsInitialFull) {
@@ -232,6 +252,7 @@ void Ssd1683Driver::displayWindow(EpdBus& bus, const uint8_t* fb, const uint8_t*
   if (w == 0 || h == 0 || x + w > _w || y + h > _h) return;
   if (x % 8 != 0 || w % 8 != 0) return;  // RAM X is byte addressed
   if (!fb) return;
+  ensureAwake(bus);
 
   if (_needsInitialFull) {
     display(bus, fb, prev, RefreshMode::Full, turnOff);
@@ -273,15 +294,22 @@ void Ssd1683Driver::displayWindow(EpdBus& bus, const uint8_t* fb, const uint8_t*
 
 void Ssd1683Driver::seedPreviousFrame(EpdBus& bus, const uint8_t* buf) {
   if (!buf) return;
+  ensureAwake(bus);
   setRamArea(bus, 0, 0, _w, _h);
   writeRam(bus, CMD_WRITE_RAM_RED, buf, _bufferSize);
 }
 
 void Ssd1683Driver::deepSleep(EpdBus& bus) {
+  // Already asleep: a second 0x10 would need RES# + init first, and deep sleep
+  // from that state is what darkens the glass. Send nothing.
+  if (_panelAsleep) return;
   powerOffController(bus);
   bus.cmd(CMD_DEEP_SLEEP);
   bus.data(DEEP_SLEEP_MODE1);
-  // Only RES# wakes the controller; begin() re-inits and re-arms the first FULL.
+  // Only RES# wakes the controller: the next command runs ensureAwake(). The
+  // next paint is promoted to FULL unless the host calls skipInitialResync()
+  // or wakes through beginFromDeepSleep().
+  _panelAsleep = true;
   _needsInitialFull = true;
 }
 

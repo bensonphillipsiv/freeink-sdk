@@ -11,7 +11,8 @@ class EpdBus {
   std::vector<Write> writes;
   bool transaction=false;
   unsigned waits=0;
-  void clear() { assert(!transaction); writes.clear(); waits=0; }
+  unsigned resets=0;
+  void clear() { assert(!transaction); writes.clear(); waits=0; resets=0; }
   void begin(const EpdPins&, uint32_t, BusyPolarity, int8_t=-1, int8_t=-1) {}
   void cmd(uint8_t c) { assert(!transaction); writes.push_back({c,{}}); }
   void data(uint8_t b) { data(&b,1); }
@@ -29,7 +30,7 @@ class EpdBus {
   }
   void cmdData2(uint8_t c, uint8_t a, uint8_t b) { cmd(c); data(a); data(b); }
   void cmdData(uint8_t c, const uint8_t* p, uint16_t n) { cmd(c); data(p,n); }
-  void reset(uint16_t=0) {}
+  void reset(uint16_t=0) { ++resets; }
   void waitBusy(const char* =nullptr) { assert(!transaction); ++waits; }
   void waitRefreshComplete(const char* =nullptr) { assert(!transaction); ++waits; }
   bool isBusy() const { return false; }

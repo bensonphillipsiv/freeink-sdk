@@ -79,8 +79,14 @@ These have no `BoardProfile` field and stay in the consumer's own pin header:
 * **Panel (`Ssd1683Driver`).** FULL (`0x22 F7`) 1.64 s; FAST differential
   (`0x22 FC`) 462 ms; a windowed refresh (`displayWindow`) 400 ms.
 * **Deep sleep and wake.** Deep sleep (`0x10 01`) with ext1 motion wake: the panel
-  image is retained across sleep, and the consumer calls `skipInitialResync()` on
-  wake so the first paint is a differential instead of a promoted FULL.
+  image and RAM are retained across sleep. On wake the consumer calls
+  `beginFromDeepSleep()`, which leaves the controller asleep: RES#, SWRESET and
+  init run on the first refresh (about 40 ms more on that one), and that
+  refresh stays a differential instead of a promoted FULL. A sleep with no
+  refresh since the wake sends nothing. Measured 2026-10-12: entering deep sleep
+  (mode 1 or 2) from the reset + init state, with no display sequence since,
+  darkened the whole active area a little on every such wake-and-sleep cycle;
+  the lazy wake does not send that sequence.
 * **LIS2DW12.** `Imu::read()` reads ~1.0 g at rest.
 * **Orientation.** `NO_FLIP` with the UI's landscape base reads upright on the glass;
   the consumer's four-way facing table was checked on the glass 2026-10-10.

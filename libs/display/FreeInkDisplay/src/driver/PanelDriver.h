@@ -47,7 +47,21 @@ class PanelDriver {
 
   // --- lifecycle ---
   virtual void begin(EpdBus& bus) = 0;
+  // Wake from a deepSleep() a previous boot sent: the controller is still in
+  // deep sleep with its RAM retained, and the glass still shows the frame that
+  // RAM holds, so the first paint may be a differential against it. Drivers
+  // that can defer the wake leave the panel untouched until it is first needed
+  // (SSD1683: RES# + init run lazily, and a deepSleep() before any paint sends
+  // nothing). The default wakes it now, as begin() + skipInitialResync().
+  virtual void beginFromDeepSleep(EpdBus& bus) {
+    begin(bus);
+    skipInitialResync();
+  }
   virtual void deepSleep(EpdBus& bus) = 0;
+  // True while the driver knows the controller is in deep sleep (after
+  // deepSleep(), or untouched since beginFromDeepSleep()). Drivers that do not
+  // track it report false.
+  virtual bool panelAsleep() const { return false; }
 
   // --- core paint path (load RAM + refresh) ---
   virtual void display(EpdBus& bus, const uint8_t* fb, const uint8_t* prev, RefreshMode mode, bool turnOff) = 0;

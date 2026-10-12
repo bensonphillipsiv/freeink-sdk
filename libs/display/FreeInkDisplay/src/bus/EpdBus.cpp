@@ -104,6 +104,13 @@ void EpdBus::begin(const EpdPins& pins, uint32_t spiHz, BusyPolarity busy, int8_
 
   SPI.begin(pins.sclk, spiMiso, pins.mosi, pins.cs);
 
+  // Output latches go HIGH before the pins become outputs. GPIO_OUT is 0 after
+  // a chip reset, so pinMode(OUTPUT) alone drives the pin LOW until the first
+  // digitalWrite(); on RES# that is a reset pulse, which wakes (and re-inits) a
+  // panel a deep-sleep wake means to leave asleep (PanelDriver::
+  // beginFromDeepSleep). gpio_set_level() because Arduino-ESP32 3.x ignores
+  // digitalWrite() on a pin pinMode() has not claimed.
+  gpio_set_level(static_cast<gpio_num_t>(pins.cs), 1);
   pinMode(pins.cs, OUTPUT);
   pinMode(pins.dc, OUTPUT);
   // Release any deep-sleep hold on RST. powerDownRailsForSleep() holds it HIGH
@@ -112,6 +119,8 @@ void EpdBus::begin(const EpdPins& pins, uint32_t spiHz, BusyPolarity busy, int8_
   // bounce off the latch. Boards routing RST through an IO expander leave the
   // pin unassigned and reset via the freeink_board_epd_reset hook instead.
   if (pins.rst >= 0) {
+    // Latch first: releasing a hold hands the pad to the latch.
+    gpio_set_level(static_cast<gpio_num_t>(pins.rst), 1);
     gpio_hold_dis(static_cast<gpio_num_t>(pins.rst));
     pinMode(pins.rst, OUTPUT);
   }

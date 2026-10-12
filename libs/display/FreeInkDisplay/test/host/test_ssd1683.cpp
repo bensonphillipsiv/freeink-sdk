@@ -62,10 +62,10 @@ int main() {
   assert(!d.grayscaleCapabilities(GrayscaleMode::Overlay).supported());
   assert(!d.grayscaleCapabilities(GrayscaleMode::Absolute).supported());
 
-  // begin: SWRESET + wait, MUX, border, temp sensor, full-screen RAM area.
+  // begin: RES#, SWRESET + wait, MUX, border, temp sensor, full-screen RAM area.
   EpdBus bus;
   d.begin(bus);
-  assert(bus.writes.size() == 9 && bus.waits == 1);
+  assert(bus.writes.size() == 9 && bus.waits == 1 && bus.resets == 1);
   assert(is(bus.writes[0], 0x12, {}));
   assert(is(bus.writes[1], 0x01, {0x2B, 0x01, 0x00}));
   assert(is(bus.writes[2], 0x3C, {0x01}));
@@ -203,6 +203,117 @@ int main() {
   d.displayWindow(bus, fb.data(), nullptr, 8, 10, 16, 20, false);
   expectTail(bus, {0x40, 0x00}, 0xF7, -1);
   assert(count(bus, 0x24) == 1 && bus.writes[find(bus, 0x24)].bytes.size() == 15000);
+
+  // Lazy wake: beginFromDeepSleep() leaves the controller in the deep sleep the
+  // last boot sent. No RES#, no SWRESET, no registers.
+  Ssd1683Driver lazy;
+  bus.clear();
+  lazy.beginFromDeepSleep(bus);
+  assert(bus.writes.empty() && bus.resets == 0 && bus.waits == 0 && lazy.panelAsleep());
+
+  // A quiet cycle: deepSleep() before any paint sends nothing (the panel is
+  // already asleep; deep sleep from reset + init is what darkens the glass).
+  lazy.deepSleep(bus);
+  assert(bus.writes.empty() && bus.resets == 0 && bus.waits == 0);
+
+  // The first paint after a lazy wake runs RES# + SWRESET + init, then the
+  // frame, and stays a FAST differential (the retained image is the baseline).
+  lazy.beginFromDeepSleep(bus);
+  bus.clear();
+  lazy.display(bus, fb.data(), nullptr, RefreshMode::Fast, false);
+  assert(bus.resets == 1 && count(bus, 0x12) == 1 && is(bus.writes[0], 0x12, {}));
+  assert(is(bus.writes[1], 0x01, {0x2B, 0x01, 0x00}) && is(bus.writes[2], 0x3C, {0x01}));
+  assert(is(bus.writes[3], 0x18, {0x80}));
+  expectFullScreenArea(bus, 4);
+  expectFullScreenArea(bus, 9);
+  assert(is(bus.writes[14], 0x24, fb));
+  {
+    const int a = find(bus, 0x20);
+    assert(a > 0 && is(bus.writes[a - 1], 0x22, {0xFC}) && is(bus.writes[a - 2], 0x21, {0x00, 0x00}));
+    assert(find(bus, 0x26) > a && is(bus.writes[find(bus, 0x26)], 0x26, fb));
+  }
+  assert(bus.waits == 2 && lazy._isScreenOn);
+
+  // A second paint does not re-init.
+  assert(!lazy.panelAsleep());
+  bus.clear();
+  lazy.display(bus, fb.data(), nullptr, RefreshMode::Fast, false);
+  assert(bus.resets == 0 && count(bus, 0x12) == 0 && bus.waits == 1);
+
+  // Sleep after a refresh is unchanged: power off, 0x10 01. A second deepSleep()
+  // sends nothing.
+  bus.clear();
+  lazy.deepSleep(bus);
+  assert(bus.writes.size() == 3 && bus.resets == 0);
+  assert(is(bus.writes[0], 0x22, {0x83}) && is(bus.writes[1], 0x20, {}) && is(bus.writes[2], 0x10, {0x01}));
+  assert(lazy.panelAsleep());
+  bus.clear();
+  lazy.deepSleep(bus);
+  assert(bus.writes.empty());
+
+  // A paint after deepSleep() in the same boot wakes the controller first and,
+  // without skipInitialResync(), is promoted to FULL.
+  bus.clear();
+  lazy.display(bus, fb.data(), nullptr, RefreshMode::Fast, false);
+  assert(bus.resets == 1 && count(bus, 0x12) == 1);
+  expectTail(bus, {0x40, 0x00}, 0xF7, -1);
+
+  // ... and with skipInitialResync() before the lazy init, it stays FAST: the
+  // init does not clobber the host's request.
+  lazy.deepSleep(bus);
+  lazy.skipInitialResync();
+  bus.clear();
+  lazy.display(bus, fb.data(), nullptr, RefreshMode::Fast, false);
+  assert(bus.resets == 1 && count(bus, 0x12) == 1);
+  {
+    const int a = find(bus, 0x20);
+    assert(is(bus.writes[a - 1], 0x22, {0xFC}));
+  }
+
+  // Every entry point wakes the controller: a window (FAST, not promoted),
+  // displayStart(), seedPreviousFrame().
+  lazy.deepSleep(bus);
+  lazy.beginFromDeepSleep(bus);
+  bus.clear();
+  lazy.displayWindow(bus, framed.data(), nullptr, 8, 10, 16, 20, false);
+  assert(bus.resets == 1 && is(bus.writes[0], 0x12, {}));
+  assert(is(bus.writes[find(bus, 0x20) - 1], 0x22, {0xFC}));
+  assert(bus.writes[find(bus, 0x24)].bytes.size() == 40);
+
+  lazy.deepSleep(bus);
+  lazy.beginFromDeepSleep(bus);
+  bus.clear();
+  assert(lazy.displayStart(bus, fb.data(), nullptr, RefreshMode::Fast, false));
+  assert(bus.resets == 1 && is(bus.writes[0], 0x12, {}) && bus.writes.back().command == 0x20);
+  assert(is(bus.writes[bus.writes.size() - 2], 0x22, {0xFC}));
+  lazy.displayFinish(bus, fb.data());
+
+  lazy.deepSleep(bus);
+  lazy.beginFromDeepSleep(bus);
+  bus.clear();
+  lazy.seedPreviousFrame(bus, prev.data());
+  assert(bus.resets == 1 && is(bus.writes[0], 0x12, {}) && is(bus.writes.back(), 0x26, prev));
+
+  // A cold begin() always resets and re-arms the first-paint FULL.
+  lazy.deepSleep(bus);
+  bus.clear();
+  lazy.begin(bus);
+  assert(bus.resets == 1 && bus.writes.size() == 9 && lazy._needsInitialFull && !lazy._panelAsleep);
+
+  // The PanelDriver default for drivers without a lazy path: begin() +
+  // skipInitialResync() at once.
+  struct Eager : PanelDriver {
+    int begins = 0, skips = 0;
+    uint32_t spiHz() const override { return 0; }
+    BusyPolarity busyPolarity() const override { return BusyPolarity::ActiveHigh; }
+    PanelGeometry geometry() const override { return {}; }
+    void begin(EpdBus&) override { ++begins; }
+    void deepSleep(EpdBus&) override {}
+    void display(EpdBus&, const uint8_t*, const uint8_t*, RefreshMode, bool) override {}
+    void skipInitialResync() override { skips += begins; }
+  } eager;
+  eager.beginFromDeepSleep(bus);
+  assert(eager.begins == 1 && eager.skips == 1);
 
   // mirrorY sets the TB bit in the scan byte.
   BoardConfig::ACTIVE.orientation.mirrorY = true;

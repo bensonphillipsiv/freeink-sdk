@@ -206,7 +206,11 @@ void FreeInkDisplay::selectDriver() {
   if (_driver) _driver->setBackgroundHint(_inverted);
 }
 
-void FreeInkDisplay::begin() {
+void FreeInkDisplay::begin() { beginImpl(false); }
+
+void FreeInkDisplay::beginFromDeepSleep() { beginImpl(true); }
+
+void FreeInkDisplay::beginImpl(bool fromDeepSleep) {
   cancelGrayscalePass();
   selectDriver();
 
@@ -246,7 +250,11 @@ void FreeInkDisplay::begin() {
   if (frameBuffer1) memset(frameBuffer1, 0xFF, bufferSize);
 #endif
 
-  _driver->begin(_bus);
+  if (fromDeepSleep) {
+    _driver->beginFromDeepSleep(_bus);
+  } else {
+    _driver->begin(_bus);
+  }
 }
 
 // ============================================================================
@@ -1054,6 +1062,8 @@ void FreeInkDisplay::deepSleep() {
   syncPendingAsync();
   if (_driver) _driver->deepSleep(_bus);
 }
+
+bool FreeInkDisplay::panelAsleep() const { return _driver && _driver->panelAsleep(); }
 
 // ============================================================================
 // Desktop/test helper
